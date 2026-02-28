@@ -195,6 +195,462 @@
             }
         });
 
+        let _devtoolsCheckInterval = null; // Detecção de DevTools removida (falsos positivos)
+
+        // --- Protect console ---
+        const _origLog = console.log;
+        const _origWarn = console.warn;
+        ['log', 'warn', 'error', 'table', 'dir'].forEach(m => {
+            const original = console[m];
+            console[m] = function(...args) {
+                // Allow normal logging but flag suspicious score modifications
+                const str = args.map(a => String(a)).join(' ').toLowerCase();
+                if (str.includes('score') || str.includes('pontos') || str.includes('cheat')) {
+                    _suspiciousEvents++;
+                }
+                original.apply(console, args);
+            };
+        });
+
+        // --- Detect property tampering on exposed objects ---
+        // We'll use a getter/setter guard on the display element
+        const displayEl = document.getElementById('pontos');
+        let _displayedScore = 0;
+        const _origSetter = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+
+        // Override innerText on the points display to detect external manipulation
+        let _allowDisplayUpdate = false;
+        const _observer = new MutationObserver((mutations) => {
+            if (!_allowDisplayUpdate && jogoAtivo && jogoIniciado) {
+                for (const m of mutations) {
+                    const newVal = parseInt(displayEl.innerText);
+                    if (!isNaN(newVal) && newVal !== _internalScore) {
+                        // Someone changed the display manually
+                        displayEl.innerText = _internalScore; // revert
+                        _suspiciousEvents++;
+                        if (_suspiciousEvents >= 2) {
+                            triggerCheat("Manipulação do placar detectada via DOM");
+                        }
+                    }
+                }
+            }
+        });
+        _observer.observe(displayEl, { childList: true, characterData: true, subtree: true });
+
+        function safeUpdateDisplay(val) {
+            _allowDisplayUpdate = true;
+            displayEl.innerText = val;
+            _allowDisplayUpdate = false;
+        }
+
+        // --- localStorage score tampering protection ---
+        // We sign scores with a simple hash before saving
+        function _simpleHash(str) {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < str.length; i++) {
+                h ^= str.charCodeAt(i);
+                h += (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24);
+            }
+            return (h >>> 0).toString(16);
+        }
+
+        const SALT = "downwards_v1_" + navigator.userAgent.length;
+
+        function saveScore(user, scoreVal) {
+            if (cheatDetected) return false;
+            const payload = `${user}:${scoreVal}:${SALT}`;
+            const sig = _simpleHash(payload);
+            localStorage.setItem(`score_${user}`, JSON.stringify({ s: scoreVal, h: sig }));
+            return true;
+        }
+
+        function loadScore(user) {
+            try {
+                const raw = localStorage.getItem(`score_${user}`);
+                if (!raw) return 0;
+                const obj = JSON.parse(raw);
+                const payload = `${user}:${obj.s}:${SALT}`;
+                const sig = _simpleHash(payload);
+                if (sig !== obj.h) {
+                    triggerCheat("Score salvo foi adulterado");
+                    return 0;
+                }
+                return obj.s;
+            } catch(e) { return 0; }
+        }
+
+        // --- Main cheat trigger ---
+        function triggerCheat(reason) {
+            if (cheatDetected) return;
+            cheatDetected = true;
+            sessionValid = false;
+            clearInterval(_devtoolsCheckInterval);
+
+            // Stop the game
+            jogoAtivo = false;
+            if (typeof timeoutObstaculo !== 'undefined' && timeoutObstaculo) {
+                clearTimeout(timeoutObstaculo);
+            }
+
+            document.getElementById('cheat-reason').innerText = "Motivo: " + reason;
+            document.getElementById('cheat-overlay').style.display = 'flex';
+
+            console.warn('[AntiCheat] Sessão inválida:', reason);
+        }
+
+        function isSessionValid() { return sessionValid && !cheatDetected; }
+        function wasCheatDetected() { return cheatDetected; }
+        function resetCheatState() {
+            cheatDetected = false;
+            sessionValid = true;
+            _suspiciousEvents = 0;
+            _scoreIncrements = [];
+            _sessionStart = Date.now();
+            resetScore();
+        }
+
+        return {
+            incrementScore,
+            getScore,
+            resetScore,
+            saveScore,
+            loadScore,
+            safeUpdateDisplay,
+            isSessionValid,
+            wasCheatDetected,
+            resetCheatState,
+            triggerCheat
+        };
+    })();
+
+    // ============================================================
+    // GAME CODE
+    // ============================================================
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const musica = document.getElementById('musicaFundo');
+    const menu = document.getElementById('menu-opcoes');
+    
+    musica.volume = 0.05;
+    canvas.width = 350;
+    canvas.height = 500;
+
+    let jogoAtivo = true;
+    let jogoIniciado = false;
+    let podeRespawnar = false; 
+    let timeoutObstaculo = null;
+    const player = { x: canvas.width / 2, y: canvas.height - 60 };
+    let obstaculos = [];
+
+    function moverPlayer(clientX) {
+        if (!jogoIniciado || !jogoAtivo || menu.style.display === 'block') return;
+        const rect = canvas.getBoundingClientRect();
+        player.x = clientX - rect.left;
+        if (player.x < 15) player.x = 15;
+        if (player.x > canvas.width - 15) player.x = canvas.width - 15;
+    }
+
+    canvas.addEventListener('mousemove', (e) => moverPlayer(e.clientX));
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        moverPlayer(e.touches[0].clientX);
+    }, { passive: false });
+
+    window.onload = () => {
+        const salvo = localStorage.getItem('usuarioLogado');
+        if (salvo) exibirLogado(salvo);
+    };
+
+    function exibirLogado(nome) {
+        document.getElementById('area-login').style.display = 'none';
+        document.getElementById('area-logado').style.display = 'block';
+        const st = document.getElementById('status-login');
+        st.style.display = 'block';
+        const bestScore = AntiCheat.loadScore(nome);
+        st.innerText = "Olá, " + nome + (bestScore ? ` | Recorde: ${bestScore}` : '');
+    }
+
+    const USER_REGEX = /^[a-zA-Z0-9_]+$/;
+
+    // Block invalid characters in real time while typing
+    document.getElementById('user').addEventListener('input', function() {
+        const pos = this.selectionStart;
+        const cleaned = this.value.replace(/[^a-zA-Z0-9_]/g, '');
+        if (this.value !== cleaned) {
+            this.value = cleaned;
+            // Restore cursor position
+            this.setSelectionRange(pos - 1, pos - 1);
+        }
+    });
+
+    function validarUsuario(u) {
+        if (!u) return "Usuário não pode ser vazio.";
+        if (u.length < 3) return "Usuário deve ter pelo menos 3 caracteres.";
+        if (u.length > 20) return "Usuário deve ter no máximo 20 caracteres.";
+        if (!USER_REGEX.test(u)) return "Usuário só pode ter letras, números e _.";
+        return null;
+    }
+
+    function cadastrar() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        const erro = validarUsuario(u);
+        if (erro) { alert(erro); return; }
+        if (!p) { alert("Senha não pode ser vazia."); return; }
+        if (localStorage.getItem('u_' + u)) { alert("Usuário já existe!"); return; }
+        localStorage.setItem('u_' + u, p);
+        alert("Conta criada!");
+    }
+
+    function login() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        if(localStorage.getItem('u_' + u) === p) {
+            localStorage.setItem('usuarioLogado', u);
+            exibirLogado(u);
+        } else { alert("Usuário ou senha incorretos!"); }
+    }
+
+    function logout() { localStorage.removeItem('usuarioLogado'); location.reload(); }
+
+    document.getElementById('btn-config').onclick = () => {
+        menu.style.display = 'block';
+        jogoAtivo = false;
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+    };
+
+    function fecharMenu() {
+        menu.style.display = 'none';
+        if (jogoIniciado) {
+            jogoAtivo = true;
+            criarObstaculo();
+            requestAnimationFrame(atualizar);
+        }
+    }
+
+    const clicarTela = () => {
+        if (menu.style.display === 'block') return;
+        musica.play().catch(() => {});
+        if (!jogoIniciado) {
+            jogoIniciado = true;
+            canvas.style.cursor = 'none';
+            criarObstaculo();
+        } else if (!jogoAtivo && podeRespawnar) {
+            resetarJogo();
+        }
+    };
+
+    canvas.addEventListener('mousedown', clicarTela);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); clicarTela(); }, { passive: false });
+
+    function criarObstaculo() {
+        if (!jogoAtivo || !jogoIniciado) return;
+        if (!AntiCheat.isSessionValid()) return;
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+        const currentScore = AntiCheat.getScore();
+        obstaculos.push({ 
+            x: Math.random() * (canvas.width - 30) + 15, 
+            y: -30, 
+            speed: 3 + (currentScore / 200), 
+            angulo: 0 
+        });
+        let proximoSpawn = Math.max(250, 900 - (currentScore * 1.2));
+        timeoutObstaculo = setTimeout(criarObstaculo, proximoSpawn);
+    }
+
+    function salvarRecorde() {
+        const user = localStorage.getItem('usuarioLogado');
+        if (!user || !AntiCheat.isSessionValid()) return;
+        const currentScore = AntiCheat.getScore();
+        const best = AntiCheat.loadScore(user);
+        if (currentScore > best) {
+            AntiCheat.saveScore(user, currentScore);
+        }
+    }
+
+    function resetarJogo() {
+        AntiCheat.resetScore();
+        AntiCheat.safeUpdateDisplay(0);
+        obstaculos = []; 
+        jogoAtivo = true; 
+        podeRespawnar = false;
+        player.x = canvas.width / 2; 
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+        canvas.style.cursor = 'none';
+        criarObstaculo(); 
+        requestAnimationFrame(atualizar);
+    }
+
+    function reiniciarAposCheat() {
+        AntiCheat.resetCheatState();
+        document.getElementById('cheat-overlay').style.display = 'none';
+        jogoAtivo = true;
+        jogoIniciado = false;
+        podeRespawnar = false;
+        obstaculos = [];
+        AntiCheat.safeUpdateDisplay(0);
+        player.x = canvas.width / 2;
+        canvas.style.cursor = 'pointer';
+        requestAnimationFrame(atualizar);
+    }
+
+    function atualizar() {
+        if (!jogoAtivo) return;
+        if (!AntiCheat.isSessionValid()) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const currentScore = AntiCheat.getScore();
+
+        if (!jogoIniciado) {
+            ctx.fillStyle = "white"; 
+            ctx.textAlign = "center"; 
+            ctx.font = "bold 25px Arial";
+            ctx.fillText("PRONTO?", canvas.width/2, canvas.height/2);
+        } else {
+            ctx.fillStyle = "white"; 
+            ctx.font = "53px serif"; 
+            ctx.textAlign = "center";
+            ctx.fillText("■", player.x, player.y);
+
+            for (let i = obstaculos.length - 1; i >= 0; i--) {
+                let o = obstaculos[i]; 
+                o.y += o.speed; 
+                o.angulo += 0.05;
+
+                ctx.save(); 
+                ctx.translate(o.x, o.y); 
+                ctx.rotate(o.angulo);
+                ctx.fillStyle = "white"; 
+                ctx.font = "25px Arial"; 
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", 0, 0); 
+                ctx.restore();
+
+                const dx = player.x - o.x; 
+                const dy = (player.y - 15) - o.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 28) {
+                    jogoAtivo = false; 
+                    canvas.style.cursor = 'pointer';
+                    if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+                    salvarRecorde(); // Save score with integrity check
+                    setTimeout(() => podeRespawnar = true, 300);
+                    ctx.fillStyle = "rgba(0,0,0,0.85)"; 
+                    ctx.fillRect(0,0,canvas.width,canvas.height);
+                    ctx.fillStyle = "white"; 
+                    ctx.font = "bold 25px Arial";
+                    ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
+                    ctx.font = "16px Arial";
+                    ctx.fillText("Pontos: " + currentScore, canvas.width/2, canvas.height/2 + 35);
+                    return;
+                }
+                if (o.y > canvas.height + 50) { 
+                    obstaculos.splice(i, 1);
+                    // Score increment goes through anti-cheat
+                    if (AntiCheat.incrementScore()) {
+                        AntiCheat.safeUpdateDisplay(AntiCheat.getScore());
+                    }
+                }
+            }
+        }
+        requestAnimationFrame(atualizar);
+    }
+    atualizar();
+</script>
+</body>
+    </html>
+<div id="game-container">
+    <div id="btn-config">⚙️</div>
+    
+    <div id="menu-opcoes">
+        <h3>CONTA</h3>
+        <div id="status-login"></div>
+        <div id="area-login">
+            <input type="text" id="user" placeholder="Usuário" maxlength="20" autocomplete="off">
+            <div style="font-size: 11px; color: #888; margin-top: -6px; margin-bottom: 6px;">letras, números e _ (3–20 chars)</div>
+            <input type="password" id="pass" placeholder="Senha">
+            <button onclick="cadastrar()">Cadastrar</button>
+            <button onclick="login()" style="background: #44ff44;">Entrar</button>
+        </div>
+        <div id="area-logado" style="display: none;">
+            <button onclick="logout()" style="background: #ff4444; color: white;">Sair</button>
+        </div>
+        <br>
+        <button onclick="fecharMenu()" style="background: #666; color: white;">Voltar</button>
+    </div>
+
+    <canvas id="game-canvas"></canvas>
+</div>
+
+<!-- Anti-cheat warning overlay -->
+<div id="cheat-overlay">
+    <h2>⚠ TRAPAÇA DETECTADA</h2>
+    <div class="reason" id="cheat-reason">Motivo desconhecido</div>
+    <p>Sua sessão foi encerrada por comportamento suspeito.<br>O placar não será salvo.</p>
+    <button onclick="reiniciarAposCheat()">Jogar de novo (sem salvar)</button>
+</div>
+
+<audio id="musicaFundo" loop>
+    <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+    // ============================================================
+    // ANTI-CHEAT SYSTEM
+    // ============================================================
+    const AntiCheat = (() => {
+        let cheatDetected = false;
+        let sessionValid = true;
+
+        // Internal protected score (not directly accessible)
+        let _internalScore = 0;
+        let _lastScoreTime = Date.now();
+        let _scoreIncrements = []; // track increment timing
+        let _sessionStart = Date.now();
+        let _tabFocusLostAt = null;
+        let _totalTabTime = 0;
+        let _suspiciousEvents = 0;
+
+        // --- Score integrity ---
+        // Score can only increase by exactly 10, via trusted increments
+        const VALID_INCREMENT = 10;
+        const MAX_SCORE_RATE = 150; // max score per second under normal gameplay
+
+        function incrementScore() {
+            const now = Date.now();
+            const elapsed = now - _lastScoreTime;
+            _scoreIncrements.push(elapsed);
+            if (_scoreIncrements.length > 10) _scoreIncrements.shift();
+
+            // Check if score is increasing impossibly fast
+            const avgInterval = _scoreIncrements.reduce((a, b) => a + b, 0) / _scoreIncrements.length;
+            if (_scoreIncrements.length >= 5 && avgInterval < 100) {
+                triggerCheat("Score aumentando rápido demais");
+                return false;
+            }
+
+            _internalScore += VALID_INCREMENT;
+            _lastScoreTime = now;
+            return true;
+        }
+
+        function getScore() { return _internalScore; }
+
+        function resetScore() {
+            _internalScore = 0;
+            _lastScoreTime = Date.now();
+            _scoreIncrements = [];
+        }
+
+        // --- Tab visibility / focus detection ---
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                _tabFocusLostAt = Date.now();
+            } else if (_tabFocusLostAt) {
+                _totalTabTime += Date.now() - _tabFocusLostAt;
+                _tabFocusLostAt = null;
+            }
+        });
+
         // --- DevTools detection (timing trick) ---
         let _devtoolsCheckInterval = setInterval(() => {
             const start = performance.now();
