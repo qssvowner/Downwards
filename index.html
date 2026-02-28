@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Downwards - Protected Edition</title>
+    <title>Downwards</title>
     <style>
         body {
             margin: 0;
@@ -16,7 +16,6 @@
             height: 100vh;
             overflow: hidden;
             touch-action: none;
-            user-select: none; /* Impede seleção de texto */
         }
         #game-container {
             position: relative;
@@ -80,14 +79,14 @@
         <div id="area-login">
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
-            <button onclick="window.gameControl.cadastrar()">Cadastrar</button>
-            <button onclick="window.gameControl.login()" style="background: #44ff44;">Entrar</button>
+            <button onclick="cadastrar()">Cadastrar</button>
+            <button onclick="login()" style="background: #44ff44;">Entrar</button>
         </div>
         <div id="area-logado" style="display: none;">
-            <button onclick="window.gameControl.logout()" style="background: #ff4444; color: white;">Sair</button>
+            <button onclick="logout()" style="background: #ff4444; color: white;">Sair</button>
         </div>
         <br>
-        <button onclick="window.gameControl.fecharMenu()" style="background: #666; color: white;">Voltar</button>
+        <button onclick="fecharMenu()" style="background: #666; color: white;">Voltar</button>
     </div>
 
     <canvas id="game-canvas"></canvas>
@@ -98,9 +97,184 @@
 </audio>
 
 <script>
-/**
- * ANTICHEAT INTEGRADO
- * 1. Bloqueio de Teclas de Atalho (F12, Ctrl+Shift+I, etc)
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const displayPontos = document.getElementById('pontos');
+    const musica = document.getElementById('musicaFundo');
+    const menu = document.getElementById('menu-opcoes');
+    
+    musica.volume = 0.05;
+    canvas.width = 350;
+    canvas.height = 500;
+
+    let jogoAtivo = true;
+    let jogoIniciado = false;
+    let podeRespawnar = false; 
+    let score = 0;
+    const player = { x: canvas.width / 2, y: canvas.height - 60 };
+    let obstaculos = [];
+    let timeoutObstaculo = null;
+
+    function moverPlayer(clientX) {
+        if (!jogoIniciado || !jogoAtivo || menu.style.display === 'block') return;
+        const rect = canvas.getBoundingClientRect();
+        player.x = clientX - rect.left;
+        if (player.x < 15) player.x = 15;
+        if (player.x > canvas.width - 15) player.x = canvas.width - 15;
+    }
+
+    canvas.addEventListener('mousemove', (e) => moverPlayer(e.clientX));
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        moverPlayer(e.touches[0].clientX);
+    }, { passive: false });
+
+    window.onload = () => {
+        const salvo = localStorage.getItem('usuarioLogado');
+        if (salvo) exibirLogado(salvo);
+    };
+
+    function exibirLogado(nome) {
+        document.getElementById('area-login').style.display = 'none';
+        document.getElementById('area-logado').style.display = 'block';
+        const st = document.getElementById('status-login');
+        st.style.display = 'block';
+        st.innerText = "Olá, " + nome;
+    }
+
+    function cadastrar() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        if(u && p) { localStorage.setItem('u_' + u, p); alert("Conta criada!"); }
+    }
+
+    function login() {
+        const u = document.getElementById('user').value;
+        const p = document.getElementById('pass').value;
+        if(localStorage.getItem('u_' + u) === p) {
+            localStorage.setItem('usuarioLogado', u);
+            exibirLogado(u);
+        } else { alert("Incorreto!"); }
+    }
+
+    function logout() { localStorage.removeItem('usuarioLogado'); location.reload(); }
+
+    document.getElementById('btn-config').onclick = () => {
+        menu.style.display = 'block';
+        jogoAtivo = false;
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+    };
+
+    function fecharMenu() {
+        menu.style.display = 'none';
+        if (jogoIniciado) {
+            jogoAtivo = true;
+            criarObstaculo(); // Reinicia o nascimento dos itens
+            requestAnimationFrame(atualizar);
+        }
+    }
+
+    const clicarTela = () => {
+        if (menu.style.display === 'block') return;
+        musica.play().catch(() => {});
+        if (!jogoIniciado) {
+            jogoIniciado = true;
+            canvas.style.cursor = 'none';
+            criarObstaculo();
+        } else if (!jogoAtivo && podeRespawnar) {
+            resetarJogo();
+        }
+    };
+
+    canvas.addEventListener('mousedown', clicarTela);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); clicarTela(); }, { passive: false });
+
+    function criarObstaculo() {
+        if (!jogoAtivo || !jogoIniciado) return;
+        
+        // Garante que não existam múltiplos loops de criação
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+
+        obstaculos.push({ 
+            x: Math.random() * (canvas.width - 30) + 15, 
+            y: -30, 
+            speed: 3 + (score / 200), 
+            angulo: 0 
+        });
+        
+        let proximoSpawn = Math.max(250, 900 - (score * 1.2));
+        timeoutObstaculo = setTimeout(criarObstaculo, proximoSpawn);
+    }
+
+    function resetarJogo() {
+        score = 0; 
+        displayPontos.innerText = "0"; 
+        obstaculos = []; 
+        jogoAtivo = true; 
+        podeRespawnar = false;
+        player.x = canvas.width / 2; 
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+        canvas.style.cursor = 'none';
+        criarObstaculo(); 
+        requestAnimationFrame(atualizar);
+    }
+
+    function atualizar() {
+        if (!jogoAtivo) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!jogoIniciado) {
+            ctx.fillStyle = "white"; 
+            ctx.textAlign = "center"; 
+            ctx.font = "bold 25px Arial";
+            ctx.fillText("PRONTO?", canvas.width/2, canvas.height/2);
+        } else {
+            ctx.fillStyle = "white"; 
+            ctx.font = "53px serif"; 
+            ctx.textAlign = "center";
+            ctx.fillText("■", player.x, player.y);
+
+            for (let i = obstaculos.length - 1; i >= 0; i--) {
+                let o = obstaculos[i]; 
+                o.y += o.speed; 
+                o.angulo += 0.05; // Velocidade de rotação corrigida
+
+                ctx.save(); 
+                ctx.translate(o.x, o.y); 
+                ctx.rotate(o.angulo);
+                ctx.fillStyle = "white"; 
+                ctx.font = "25px Arial"; 
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", 0, 0); 
+                ctx.restore();
+
+                const dx = player.x - o.x; 
+                const dy = (player.y - 15) - o.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 28) {
+                    jogoAtivo = false; 
+                    canvas.style.cursor = 'pointer';
+                    if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+                    setTimeout(() => podeRespawnar = true, 300);
+                    ctx.fillStyle = "rgba(0,0,0,0.85)"; 
+                    ctx.fillRect(0,0,canvas.width,canvas.height);
+                    ctx.fillStyle = "white"; 
+                    ctx.font = "bold 25px Arial";
+                    ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
+                    return;
+                }
+                if (o.y > canvas.height + 50) { 
+                    obstaculos.splice(i, 1); 
+                    score += 10; 
+                    displayPontos.innerText = score; 
+                }
+            }
+        }
+        requestAnimationFrame(atualizar);
+    }
+    atualizar();
+</script>
+</body>
+</html>
  * 2. Bloqueio de Clique Direito
  */
 document.addEventListener('contextmenu', e => e.preventDefault());
