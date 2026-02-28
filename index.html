@@ -3,17 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Downwards - Oficial</title>
+    <title>Downwards - Protected Edition</title>
     <style>
-        body { margin: 0; background-color: #000; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; color: white; }
-        #game-container { position: relative; border-radius: 10px; overflow: hidden; border: 2px solid #444; box-shadow: 0 0 20px rgba(0, 255, 0, 0.2); }
-        canvas { background-color: #111; display: block; cursor: crosshair; }
-        .ui { text-align: center; margin-bottom: 10px; }
-        #btn-config { position: absolute; top: 10px; left: 10px; font-size: 24px; cursor: pointer; z-index: 10; }
-        #menu-opcoes { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; padding: 20px; border: 2px solid #44ff44; border-radius: 10px; z-index: 100; width: 260px; text-align: center; }
-        #menu-opcoes input { width: 90%; margin: 10px 0; padding: 8px; border-radius: 5px; border: 1px solid #444; background: #333; color: white; }
-        #menu-opcoes button { padding: 10px; cursor: pointer; background: #eee; border: none; font-weight: bold; margin-top: 5px; width: 100%; border-radius: 5px; }
-        #cheat-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; color: #ff4444; text-align: center; }
+        body {
+            margin: 0;
+            background-color: #000000; 
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none; /* Impede seleção de texto */
+        }
+        #game-container {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+        #game-canvas {
+            background-color: #1a1a1a;
+            display: block;
+            cursor: pointer;
+        }
+        .ui {
+            text-align: center;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+        #btn-config {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 18px;
+            cursor: pointer;
+            z-index: 10;
+            color: white;
+            opacity: 0.7;
+        }
+        #menu-opcoes {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: #222;
+            padding: 20px;
+            border: 2px solid white;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            z-index: 100;
+            width: 250px;
+        }
+        #menu-opcoes input { width: 90%; margin: 10px 0; padding: 8px; border-radius: 5px; border: none; }
+        #menu-opcoes button { padding: 8px 15px; cursor: pointer; background: white; border: none; font-weight: bold; margin-top: 5px; width: 100%; }
+        #status-login { font-size: 14px; margin-bottom: 15px; color: #44ff44; display: none; }
     </style>
 </head>
 <body>
@@ -25,84 +73,253 @@
 
 <div id="game-container">
     <div id="btn-config">⚙️</div>
+    
     <div id="menu-opcoes">
         <h3>CONTA</h3>
+        <div id="status-login"></div>
         <div id="area-login">
             <input type="text" id="user" placeholder="Usuário">
             <input type="password" id="pass" placeholder="Senha">
-            <button onclick="login()" style="background: #44ff44;">Entrar</button>
+            <button onclick="window.gameControl.cadastrar()">Cadastrar</button>
+            <button onclick="window.gameControl.login()" style="background: #44ff44;">Entrar</button>
         </div>
-        <button onclick="fecharMenu()" style="background: #666; color: white; margin-top: 10px;">Voltar</button>
+        <div id="area-logado" style="display: none;">
+            <button onclick="window.gameControl.logout()" style="background: #ff4444; color: white;">Sair</button>
+        </div>
+        <br>
+        <button onclick="window.gameControl.fecharMenu()" style="background: #666; color: white;">Voltar</button>
     </div>
+
     <canvas id="game-canvas"></canvas>
 </div>
 
-<div id="cheat-overlay">
-    <h2>⚠ TRAPAÇA DETECTADA</h2>
-    <button onclick="location.reload()" style="padding: 10px 20px; cursor: pointer;">Recomeçar</button>
-</div>
+<audio id="musicaFundo" loop>
+    <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+</audio>
 
 <script>
-    // --- LÓGICA DO JOGO ---
+/**
+ * ANTICHEAT INTEGRADO
+ * 1. Bloqueio de Teclas de Atalho (F12, Ctrl+Shift+I, etc)
+ * 2. Bloqueio de Clique Direito
+ */
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('keydown', e => {
+    if (e.keyCode === 123 || 
+        (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) || 
+        (e.ctrlKey && e.keyCode === 85)) {
+        e.preventDefault();
+        return false;
+    }
+});
+
+/**
+ * ENCAPSULAMENTO CORE
+ * Protege variáveis globais de serem acessadas via console
+ */
+(function() {
     const canvas = document.getElementById('game-canvas');
     const ctx = canvas.getContext('2d');
-    const pontosDisplay = document.getElementById('pontos');
+    const displayPontos = document.getElementById('pontos');
+    const musica = document.getElementById('musicaFundo');
+    const menu = document.getElementById('menu-opcoes');
     
+    musica.volume = 0.05;
     canvas.width = 350;
     canvas.height = 500;
 
-    let score = 0;
-    let jogoAtivo = false;
-    let jogoIniciado = false;
-    let obstaculos = [];
-    const player = { x: canvas.width / 2, y: canvas.height - 60 };
+    // --- PROTEÇÃO DE MEMÓRIA ---
+    let _s = 0; // Score real
+    let _v = 0; // Checksum (Score XOR Key)
+    const _K = 1337; // Chave secreta de validação
 
-    // Anti-Cheat Simples
-    const AntiCheat = {
-        check: () => {
-            if (score > 0 && score % 10 !== 0) { // Se o score não for múltiplo de 10 (valor do incremento)
-                document.getElementById('cheat-overlay').style.display = 'flex';
-                jogoAtivo = false;
+    const updateScore = (val) => {
+        _s = val;
+        _v = val ^ _K; // Ofusca o valor na memória
+        displayPontos.innerText = _s;
+    };
+
+    const checkIntegrity = () => {
+        if ((_s ^ _K) !== _v) {
+            alert("Detecção de trapaça: Integridade de memória violada.");
+            resetarJogo();
+        }
+    };
+
+    // Anti-Debugger Loop
+    setInterval(() => {
+        const t0 = performance.now();
+        debugger; 
+        if (performance.now() - t0 > 100) {
+            _s = 0; // Zera o score se o debugger for ativado
+        }
+    }, 1000);
+    // ---------------------------
+
+    let jogoAtivo = true;
+    let jogoIniciado = false;
+    let podeRespawnar = false; 
+    const player = { x: canvas.width / 2, y: canvas.height - 60 };
+    let obstaculos = [];
+    let timeoutObstaculo = null;
+
+    function moverPlayer(clientX) {
+        if (!jogoIniciado || !jogoAtivo || menu.style.display === 'block') return;
+        const rect = canvas.getBoundingClientRect();
+        player.x = clientX - rect.left;
+        player.x = Math.max(15, Math.min(canvas.width - 15, player.x));
+    }
+
+    canvas.addEventListener('mousemove', (e) => moverPlayer(e.clientX));
+    canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        moverPlayer(e.touches[0].clientX);
+    }, { passive: false });
+
+    // Expondo apenas o necessário para o HTML de forma controlada
+    window.gameControl = {
+        cadastrar: () => {
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            if(u && p) { localStorage.setItem('u_' + u, p); alert("Conta criada!"); }
+        },
+        login: () => {
+            const u = document.getElementById('user').value;
+            const p = document.getElementById('pass').value;
+            if(localStorage.getItem('u_' + u) === p) {
+                localStorage.setItem('usuarioLogado', u);
+                location.reload();
+            } else { alert("Dados incorretos!"); }
+        },
+        logout: () => { localStorage.removeItem('usuarioLogado'); location.reload(); },
+        fecharMenu: () => {
+            menu.style.display = 'none';
+            if (jogoIniciado) {
+                jogoAtivo = true;
+                criarObstaculo();
+                requestAnimationFrame(atualizar);
             }
         }
     };
 
-    function desenharTelaInicial() {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "#44ff44";
-        ctx.textAlign = "center";
-        ctx.font = "bold 20px Arial";
-        ctx.fillText("CLIQUE PARA JOGAR", canvas.width/2, canvas.height/2);
+    document.getElementById('btn-config').onclick = () => {
+        menu.style.display = 'block';
+        jogoAtivo = false;
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+    };
+
+    const clicarTela = () => {
+        if (menu.style.display === 'block') return;
+        musica.play().catch(() => {});
+        if (!jogoIniciado) {
+            jogoIniciado = true;
+            canvas.style.cursor = 'none';
+            criarObstaculo();
+        } else if (!jogoAtivo && podeRespawnar) {
+            resetarJogo();
+        }
+    };
+
+    canvas.addEventListener('mousedown', clicarTela);
+    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); clicarTela(); }, { passive: false });
+
+    function criarObstaculo() {
+        if (!jogoAtivo || !jogoIniciado) return;
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+
+        obstaculos.push({ 
+            x: Math.random() * (canvas.width - 30) + 15, 
+            y: -30, 
+            speed: 3 + (_s / 250), 
+            angulo: 0 
+        });
+        
+        let proximoSpawn = Math.max(200, 900 - (_s * 1.1));
+        timeoutObstaculo = setTimeout(criarObstaculo, proximoSpawn);
     }
 
-    function spawnObstacle() {
-        if (!jogoAtivo) return;
-        obstaculos.push({
-            x: Math.random() * (canvas.width - 30) + 15,
-            y: -30,
-            speed: 3 + (score / 100)
-        });
-        setTimeout(spawnObstacle, Math.max(400, 1000 - (score * 2)));
+    function resetarJogo() {
+        updateScore(0);
+        obstaculos = []; 
+        jogoAtivo = true; 
+        podeRespawnar = false;
+        player.x = canvas.width / 2; 
+        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+        canvas.style.cursor = 'none';
+        criarObstaculo(); 
+        requestAnimationFrame(atualizar);
     }
 
     function atualizar() {
-        if (!jogoIniciado) {
-            desenharTelaInicial();
-            requestAnimationFrame(atualizar);
-            return;
-        }
-
         if (!jogoAtivo) return;
+        checkIntegrity();
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        ctx.fillStyle = "#1a1a1a";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (!jogoIniciado) {
+            ctx.fillStyle = "white"; 
+            ctx.textAlign = "center"; 
+            ctx.font = "bold 25px Arial";
+            ctx.fillText("CLIQUE PARA COMEÇAR", canvas.width/2, canvas.height/2);
+        } else {
+            // Desenhar Player
+            ctx.fillStyle = "white"; 
+            ctx.font = "53px serif"; 
+            ctx.textAlign = "center";
+            ctx.fillText("■", player.x, player.y);
 
-        // Player
-        ctx.fillStyle = "white";
-        ctx.font = "40px Arial";
-        ctx.fillText("■", player.x, player.y);
+            // Obstáculos
+            for (let i = obstaculos.length - 1; i >= 0; i--) {
+                let o = obstaculos[i]; 
+                o.y += o.speed; 
+                o.angulo += 0.05;
 
+                ctx.save(); 
+                ctx.translate(o.x, o.y); 
+                ctx.rotate(o.angulo);
+                ctx.fillStyle = "white"; 
+                ctx.font = "25px Arial"; 
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", 0, 0); 
+                ctx.restore();
+
+                const dx = player.x - o.x; 
+                const dy = (player.y - 15) - o.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 28) {
+                    jogoAtivo = false; 
+                    canvas.style.cursor = 'pointer';
+                    setTimeout(() => podeRespawnar = true, 300);
+                    ctx.fillStyle = "rgba(0,0,0,0.85)"; 
+                    ctx.fillRect(0,0,canvas.width,canvas.height);
+                    ctx.fillStyle = "white"; 
+                    ctx.font = "bold 25px Arial";
+                    ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
+                    return;
+                }
+                if (o.y > canvas.height + 50) { 
+                    obstaculos.splice(i, 1); 
+                    updateScore(_s + 10);
+                }
+            }
+        }
+        requestAnimationFrame(atualizar);
+    }
+
+    // Inicialização de Login
+    const salvo = localStorage.getItem('usuarioLogado');
+    if (salvo) {
+        document.getElementById('area-login').style.display = 'none';
+        document.getElementById('area-logado').style.display = 'block';
+        const st = document.getElementById('status-login');
+        st.style.display = 'block';
+        st.innerText = "Olá, " + salvo;
+    }
+
+    atualizar();
+})();
+</script>
+</body>
+</html>
         // Obstáculos
         for (let i = obstaculos.length - 1; i >= 0; i--) {
             let o = obstaculos[i];
