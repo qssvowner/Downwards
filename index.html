@@ -107,7 +107,7 @@
     canvas.width = 350;
     canvas.height = 500;
 
-    let jogoAtivo = true;
+    let jogoAtivo = false; // Começa falso para mostrar a tela de início
     let jogoIniciado = false;
     let podeRespawnar = false; 
     let score = 0;
@@ -132,6 +132,7 @@
     window.onload = () => {
         const salvo = localStorage.getItem('usuarioLogado');
         if (salvo) exibirLogado(salvo);
+        desenharTelaInicial(); // Desenha o aviso inicial
     };
 
     function exibirLogado(nome) {
@@ -169,7 +170,7 @@
         menu.style.display = 'none';
         if (jogoIniciado) {
             jogoAtivo = true;
-            criarObstaculo(); // Reinicia o nascimento dos itens
+            criarObstaculo(); 
             requestAnimationFrame(atualizar);
         }
     }
@@ -179,8 +180,10 @@
         musica.play().catch(() => {});
         if (!jogoIniciado) {
             jogoIniciado = true;
+            jogoAtivo = true;
             canvas.style.cursor = 'none';
             criarObstaculo();
+            atualizar(); // Inicia o loop de animação
         } else if (!jogoAtivo && podeRespawnar) {
             resetarJogo();
         }
@@ -191,8 +194,6 @@
 
     function criarObstaculo() {
         if (!jogoAtivo || !jogoIniciado) return;
-        
-        // Garante que não existam múltiplos loops de criação
         if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
 
         obstaculos.push({ 
@@ -219,331 +220,59 @@
         requestAnimationFrame(atualizar);
     }
 
+    function desenharTelaInicial() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "white"; 
+        ctx.textAlign = "center"; 
+        ctx.font = "bold 20px Arial";
+        ctx.fillText("CLIQUE PARA JOGAR", canvas.width/2, canvas.height/2);
+    }
+
     function atualizar() {
         if (!jogoAtivo) return;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (!jogoIniciado) {
-            ctx.fillStyle = "white"; 
-            ctx.textAlign = "center"; 
-            ctx.font = "bold 25px Arial";
-            ctx.fillText("PRONTO?", canvas.width/2, canvas.height/2);
-        } else {
-            ctx.fillStyle = "white"; 
-            ctx.font = "53px serif"; 
-            ctx.textAlign = "center";
-            ctx.fillText("■", player.x, player.y);
+        ctx.fillStyle = "white"; 
+        ctx.font = "53px serif"; 
+        ctx.textAlign = "center";
+        ctx.fillText("■", player.x, player.y);
 
-            for (let i = obstaculos.length - 1; i >= 0; i--) {
-                let o = obstaculos[i]; 
-                o.y += o.speed; 
-                o.angulo += 0.05; // Velocidade de rotação corrigida
-
-                ctx.save(); 
-                ctx.translate(o.x, o.y); 
-                ctx.rotate(o.angulo);
-                ctx.fillStyle = "white"; 
-                ctx.font = "25px Arial"; 
-                ctx.textBaseline = "middle";
-                ctx.fillText("?", 0, 0); 
-                ctx.restore();
-
-                const dx = player.x - o.x; 
-                const dy = (player.y - 15) - o.y;
-                if (Math.sqrt(dx*dx + dy*dy) < 28) {
-                    jogoAtivo = false; 
-                    canvas.style.cursor = 'pointer';
-                    if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
-                    setTimeout(() => podeRespawnar = true, 300);
-                    ctx.fillStyle = "rgba(0,0,0,0.85)"; 
-                    ctx.fillRect(0,0,canvas.width,canvas.height);
-                    ctx.fillStyle = "white"; 
-                    ctx.font = "bold 25px Arial";
-                    ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
-                    return;
-                }
-                if (o.y > canvas.height + 50) { 
-                    obstaculos.splice(i, 1); 
-                    score += 10; 
-                    displayPontos.innerText = score; 
-                }
-            }
-        }
-        requestAnimationFrame(atualizar);
-    }
-    atualizar();
-</script>
-</body>
-</html>
- * 2. Bloqueio de Clique Direito
- */
-document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('keydown', e => {
-    if (e.keyCode === 123 || 
-        (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) || 
-        (e.ctrlKey && e.keyCode === 85)) {
-        e.preventDefault();
-        return false;
-    }
-});
-
-/**
- * ENCAPSULAMENTO CORE
- * Protege variáveis globais de serem acessadas via console
- */
-(function() {
-    const canvas = document.getElementById('game-canvas');
-    const ctx = canvas.getContext('2d');
-    const displayPontos = document.getElementById('pontos');
-    const musica = document.getElementById('musicaFundo');
-    const menu = document.getElementById('menu-opcoes');
-    
-    musica.volume = 0.05;
-    canvas.width = 350;
-    canvas.height = 500;
-
-    // --- PROTEÇÃO DE MEMÓRIA ---
-    let _s = 0; // Score real
-    let _v = 0; // Checksum (Score XOR Key)
-    const _K = 1337; // Chave secreta de validação
-
-    const updateScore = (val) => {
-        _s = val;
-        _v = val ^ _K; // Ofusca o valor na memória
-        displayPontos.innerText = _s;
-    };
-
-    const checkIntegrity = () => {
-        if ((_s ^ _K) !== _v) {
-            alert("Detecção de trapaça: Integridade de memória violada.");
-            resetarJogo();
-        }
-    };
-
-    // Anti-Debugger Loop
-    setInterval(() => {
-        const t0 = performance.now();
-        debugger; 
-        if (performance.now() - t0 > 100) {
-            _s = 0; // Zera o score se o debugger for ativado
-        }
-    }, 1000);
-    // ---------------------------
-
-    let jogoAtivo = true;
-    let jogoIniciado = false;
-    let podeRespawnar = false; 
-    const player = { x: canvas.width / 2, y: canvas.height - 60 };
-    let obstaculos = [];
-    let timeoutObstaculo = null;
-
-    function moverPlayer(clientX) {
-        if (!jogoIniciado || !jogoAtivo || menu.style.display === 'block') return;
-        const rect = canvas.getBoundingClientRect();
-        player.x = clientX - rect.left;
-        player.x = Math.max(15, Math.min(canvas.width - 15, player.x));
-    }
-
-    canvas.addEventListener('mousemove', (e) => moverPlayer(e.clientX));
-    canvas.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        moverPlayer(e.touches[0].clientX);
-    }, { passive: false });
-
-    // Expondo apenas o necessário para o HTML de forma controlada
-    window.gameControl = {
-        cadastrar: () => {
-            const u = document.getElementById('user').value;
-            const p = document.getElementById('pass').value;
-            if(u && p) { localStorage.setItem('u_' + u, p); alert("Conta criada!"); }
-        },
-        login: () => {
-            const u = document.getElementById('user').value;
-            const p = document.getElementById('pass').value;
-            if(localStorage.getItem('u_' + u) === p) {
-                localStorage.setItem('usuarioLogado', u);
-                location.reload();
-            } else { alert("Dados incorretos!"); }
-        },
-        logout: () => { localStorage.removeItem('usuarioLogado'); location.reload(); },
-        fecharMenu: () => {
-            menu.style.display = 'none';
-            if (jogoIniciado) {
-                jogoAtivo = true;
-                criarObstaculo();
-                requestAnimationFrame(atualizar);
-            }
-        }
-    };
-
-    document.getElementById('btn-config').onclick = () => {
-        menu.style.display = 'block';
-        jogoAtivo = false;
-        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
-    };
-
-    const clicarTela = () => {
-        if (menu.style.display === 'block') return;
-        musica.play().catch(() => {});
-        if (!jogoIniciado) {
-            jogoIniciado = true;
-            canvas.style.cursor = 'none';
-            criarObstaculo();
-        } else if (!jogoAtivo && podeRespawnar) {
-            resetarJogo();
-        }
-    };
-
-    canvas.addEventListener('mousedown', clicarTela);
-    canvas.addEventListener('touchstart', (e) => { e.preventDefault(); clicarTela(); }, { passive: false });
-
-    function criarObstaculo() {
-        if (!jogoAtivo || !jogoIniciado) return;
-        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
-
-        obstaculos.push({ 
-            x: Math.random() * (canvas.width - 30) + 15, 
-            y: -30, 
-            speed: 3 + (_s / 250), 
-            angulo: 0 
-        });
-        
-        let proximoSpawn = Math.max(200, 900 - (_s * 1.1));
-        timeoutObstaculo = setTimeout(criarObstaculo, proximoSpawn);
-    }
-
-    function resetarJogo() {
-        updateScore(0);
-        obstaculos = []; 
-        jogoAtivo = true; 
-        podeRespawnar = false;
-        player.x = canvas.width / 2; 
-        if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
-        canvas.style.cursor = 'none';
-        criarObstaculo(); 
-        requestAnimationFrame(atualizar);
-    }
-
-    function atualizar() {
-        if (!jogoAtivo) return;
-        checkIntegrity();
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (!jogoIniciado) {
-            ctx.fillStyle = "white"; 
-            ctx.textAlign = "center"; 
-            ctx.font = "bold 25px Arial";
-            ctx.fillText("CLIQUE PARA COMEÇAR", canvas.width/2, canvas.height/2);
-        } else {
-            // Desenhar Player
-            ctx.fillStyle = "white"; 
-            ctx.font = "53px serif"; 
-            ctx.textAlign = "center";
-            ctx.fillText("■", player.x, player.y);
-
-            // Obstáculos
-            for (let i = obstaculos.length - 1; i >= 0; i--) {
-                let o = obstaculos[i]; 
-                o.y += o.speed; 
-                o.angulo += 0.05;
-
-                ctx.save(); 
-                ctx.translate(o.x, o.y); 
-                ctx.rotate(o.angulo);
-                ctx.fillStyle = "white"; 
-                ctx.font = "25px Arial"; 
-                ctx.textBaseline = "middle";
-                ctx.fillText("?", 0, 0); 
-                ctx.restore();
-
-                const dx = player.x - o.x; 
-                const dy = (player.y - 15) - o.y;
-                if (Math.sqrt(dx*dx + dy*dy) < 28) {
-                    jogoAtivo = false; 
-                    canvas.style.cursor = 'pointer';
-                    setTimeout(() => podeRespawnar = true, 300);
-                    ctx.fillStyle = "rgba(0,0,0,0.85)"; 
-                    ctx.fillRect(0,0,canvas.width,canvas.height);
-                    ctx.fillStyle = "white"; 
-                    ctx.font = "bold 25px Arial";
-                    ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
-                    return;
-                }
-                if (o.y > canvas.height + 50) { 
-                    obstaculos.splice(i, 1); 
-                    updateScore(_s + 10);
-                }
-            }
-        }
-        requestAnimationFrame(atualizar);
-    }
-
-    // Inicialização de Login
-    const salvo = localStorage.getItem('usuarioLogado');
-    if (salvo) {
-        document.getElementById('area-login').style.display = 'none';
-        document.getElementById('area-logado').style.display = 'block';
-        const st = document.getElementById('status-login');
-        st.style.display = 'block';
-        st.innerText = "Olá, " + salvo;
-    }
-
-    atualizar();
-})();
-</script>
-</body>
-</html>
-        // Obstáculos
         for (let i = obstaculos.length - 1; i >= 0; i--) {
-            let o = obstaculos[i];
-            o.y += o.speed;
-            ctx.fillStyle = "#ff4444";
-            ctx.fillText("?", o.x, o.y);
+            let o = obstaculos[i]; 
+            o.y += o.speed; 
+            o.angulo += 0.05; 
 
-            // Colisão
-            if (Math.abs(player.x - o.x) < 20 && Math.abs(player.y - o.y) < 25) {
-                jogoAtivo = false;
-                alert("Fim de Jogo! Pontos: " + score);
-                location.reload();
+            ctx.save(); 
+            ctx.translate(o.x, o.y); 
+            ctx.rotate(o.angulo);
+            ctx.fillStyle = "white"; 
+            ctx.font = "25px Arial"; 
+            ctx.textBaseline = "middle";
+            ctx.fillText("?", 0, 0); 
+            ctx.restore();
+
+            const dx = player.x - o.x; 
+            const dy = (player.y - 15) - o.y;
+            if (Math.sqrt(dx*dx + dy*dy) < 28) {
+                jogoAtivo = false; 
+                canvas.style.cursor = 'pointer';
+                if (timeoutObstaculo) clearTimeout(timeoutObstaculo);
+                setTimeout(() => podeRespawnar = true, 300);
+                ctx.fillStyle = "rgba(0,0,0,0.85)"; 
+                ctx.fillRect(0,0,canvas.width,canvas.height);
+                ctx.fillStyle = "white"; 
+                ctx.font = "bold 25px Arial";
+                ctx.fillText("FIM DE JOGO", canvas.width/2, canvas.height/2);
+                return;
             }
-
-            if (o.y > canvas.height) {
-                obstaculos.splice(i, 1);
-                score += 10;
-                pontosDisplay.innerText = score;
-                AntiCheat.check();
+            if (o.y > canvas.height + 50) { 
+                obstaculos.splice(i, 1); 
+                score += 10; 
+                displayPontos.innerText = score; 
             }
         }
         requestAnimationFrame(atualizar);
     }
-
-    // Controles
-    canvas.addEventListener('mousemove', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        player.x = e.clientX - rect.left;
-    });
-
-    canvas.addEventListener('click', () => {
-        if (!jogoIniciado) {
-            jogoIniciado = true;
-            jogoAtivo = true;
-            spawnObstacle();
-        }
-    });
-
-    document.getElementById('btn-config').onclick = () => {
-        document.getElementById('menu-opcoes').style.display = 'block';
-        jogoAtivo = false;
-    };
-
-    function fecharMenu() {
-        document.getElementById('menu-opcoes').style.display = 'none';
-        if (jogoIniciado) jogoAtivo = true;
-        atualizar();
-    }
-
-    atualizar();
 </script>
 </body>
 </html>
