@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Downwards</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000000; 
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+        #game-canvas {
+            background-color: #1a1a1a;
+            display: block;
+            cursor: pointer;
+        }
+        .ui {
+            text-align: center;
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="ui">
+    <h1>Downwards</h1>
+    <div style="font-size: 20px;">Pontos: <span id="pontos">0</span></div>
+</div>
+
+<div id="game-container">
+    <canvas id="game-canvas"></canvas>
+</div>
+
+<audio id="musicaFundo" loop preload="auto">
+    <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+</audio>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+    const displayPontos = document.getElementById('pontos');
+    const musica = document.getElementById('musicaFundo');
+    
+    // VOLUME REDUZIDO AQUI (0.05 é bem baixo)
+    musica.volume = 0.05;
+
+    canvas.width = 350;
+    canvas.height = 500;
+
+    let jogoAtivo = true;
+    let jogoIniciado = false;
+    let podeRespawnar = false; 
+    let score = 0;
+    const player = { x: canvas.width / 2, y: canvas.height - 60 };
+    let obstaculos = [];
+    let timeoutObstaculo;
+
+    const iniciarOuRespawnar = () => {
+        musica.play().catch(() => console.log("Aguardando interação..."));
+
+        if (!jogoIniciado) {
+            jogoIniciado = true;
+            canvas.style.cursor = 'none';
+            criarObstaculo();
+        } else if (!jogoAtivo && podeRespawnar) {
+            resetarJogo();
+        }
+    };
+
+    canvas.addEventListener('mousedown', iniciarOuRespawnar);
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        iniciarOuRespawnar();
+    }, { passive: false });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!jogoIniciado || !jogoAtivo) return;
+        const rect = canvas.getBoundingClientRect();
+        player.x = e.clientX - rect.left;
+        travarLimites();
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+        if (!jogoIniciado || !jogoAtivo) return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        player.x = e.touches[0].clientX - rect.left;
+        travarLimites();
+    }, { passive: false });
+
+    function travarLimites() {
+        if (player.x < 15) player.x = 15;
+        if (player.x > canvas.width - 15) player.x = canvas.width - 15;
+    }
+
+    function criarObstaculo() {
+        if (!jogoAtivo || !jogoIniciado) return;
+        const xAleatorio = Math.random() * (canvas.width - 30) + 15;
+        obstaculos.push({ 
+            x: xAleatorio, 
+            y: -30, 
+            speed: 3 + (score / 150),
+            angulo: 0 
+        });
+        
+        let interval = Math.max(200, 800 - (score * 1.5));
+        timeoutObstaculo = setTimeout(criarObstaculo, interval);
+    }
+
+    function resetarJogo() {
+        score = 0;
+        displayPontos.innerText = "0";
+        obstaculos = [];
+        jogoAtivo = true;
+        podeRespawnar = false; 
+        player.x = canvas.width / 2;
+        player.y = canvas.height - 60;
+        
+        clearTimeout(timeoutObstaculo);
+        canvas.style.cursor = 'none';
+        criarObstaculo();
+        requestAnimationFrame(atualizar); 
+    }
+
+    function atualizar() {
+        if (!jogoAtivo) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!jogoIniciado) {
+            ctx.fillStyle = "white";
+            ctx.textAlign = "center";
+            ctx.font = "bold 25px Arial";
+            ctx.fillText("PRONTO?", canvas.width / 2, canvas.height / 2 - 20);
+            ctx.font = "16px Arial";
+            ctx.fillText("Clique para começar", canvas.width / 2, canvas.height / 2 + 20);
+        } else {
+            ctx.fillStyle = "white";
+            ctx.font = "53px serif";
+            ctx.textAlign = "center";
+            ctx.fillText("■", player.x, player.y);
+
+            for (let i = obstaculos.length - 1; i >= 0; i--) {
+                let o = obstaculos[i];
+                o.y += o.speed;
+                o.angulo += 0.4; 
+
+                ctx.save();
+                ctx.translate(o.x, o.y - 10);
+                ctx.rotate(o.angulo);
+                ctx.fillStyle = "white";
+                ctx.font = "25px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("?", 0, 0);
+                ctx.restore();
+
+                const dx = player.x - o.x;
+                const dy = (player.y - 15) - o.y; 
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 25) {
+                    finalizarJogo();
+                    return;
+                }
+
+                if (o.y > canvas.height + 30) {
+                    obstaculos.splice(i, 1);
+                    score += 10;
+                    displayPontos.innerText = score;
+                }
+            }
+        }
+        requestAnimationFrame(atualizar);
+    }
+
+    function finalizarJogo() {
+        jogoAtivo = false;
+        canvas.style.cursor = 'pointer';
+        setTimeout(() => { podeRespawnar = true; }, 300);
+
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.font = "bold 25px Arial";
+        ctx.fillText("FIM DE JOGO", canvas.width / 2, canvas.height / 2);
+        ctx.font = "16px Arial";
+        ctx.fillText("Clique para RESPAWNAR", canvas.width / 2, canvas.height / 2 + 40);
+    }
+
+    atualizar();
+</script>
+
+</body>
+</html>
